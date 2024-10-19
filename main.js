@@ -1,4 +1,5 @@
-import fs from 'fs'
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 import cliProgress from 'cli-progress';
 import winston from 'winston';
@@ -8,11 +9,17 @@ import { LeetCode, Credential } from "leetcode-query";
 dotenv.config();
 
 const LEETCODE_SESSION = process.env.LEETCODE_SESSION; // Read session from environment variables
-const OUTPUT_FILE = process.env.OUTPUT_FILE || 'SOLUTIONS.md'; // Read output file name from environment variables, defaulting to 'SOLUTIONS.md' if not set
-
 if (!LEETCODE_SESSION) {
   throw new Error('LEETCODE_SESSION environment variable is missing.');
 }
+
+const ENABLE_SOLUTIONS_LINK = process.env.ENABLE_SOLUTION_LINKS === 'true'; // Read the feature flag for enabling/disabling solution links
+const SOLUTIONS_DIR = process.env.SOLUTIONS_DIR; // Read solutions directory from the environment variable
+if (ENABLE_SOLUTIONS_LINK && !SOLUTIONS_DIR) {
+  throw new Error('SOLUTIONS_DIR environment variable is missing.');
+}
+
+const OUTPUT_FILE = process.env.OUTPUT_FILE || 'OUTPUT.md'; // Read output file name from environment variables, defaulting to 'OUTPUT.md' if not set
 
 // Initialize credentials using session from environment variables
 const credential = new Credential();
@@ -42,7 +49,7 @@ const logger = winston.createLogger({
   ]
 });
 
-// Function to fetch all accepted submissions with pagination and deduplication
+// Fetch all accepted submissions with pagination and deduplication
 async function fetchAcceptedSubmissions() {
   try {
     const limit = 100; // Number of submissions to fetch per page
@@ -103,7 +110,7 @@ async function fetchAcceptedSubmissions() {
   }
 }
 
-// Function to categorize submissions by problem tags
+// Categorize submissions by problem tags
 async function categorizeByTags(acceptedSubmissions) {
   try {
     const categorized = {};
@@ -126,7 +133,8 @@ async function categorizeByTags(acceptedSubmissions) {
         // Add the submission to the category
         categorized[tag].push({
           title: submission.title,
-          link: `https://leetcode.com/problems/${submission.titleSlug}/`
+          link: `https://leetcode.com/problems/${submission.titleSlug}/`,
+          titleSlug: submission.titleSlug,
         });
 
         // Update the progress bar for each categorized submission
@@ -143,28 +151,80 @@ async function categorizeByTags(acceptedSubmissions) {
   }
 }
 
-// Function to generate the README markdown content from the categorized submissions
+// Find the latest solution directory for a given problem slug
+function findSolutionDirectory(problemSlug) {
+  // Get all directories in the solutions folder
+  const directories = fs.readdirSync(SOLUTIONS_DIR, { withFileTypes: true })
+    .filter(dirent => dirent.isDirectory()) // Only keep directories
+    .filter(dirent => new RegExp(`\\d*-?${problemSlug}`).test(dirent.name)); // Match directories by the problem slug
+
+  // If no directory matches the problem slug, return null
+  if (directories.length === 0) {
+    return null;
+  }
+
+  // Sort directories by creation time (most recent first)
+  const sortedDirectories = directories.map(dirent => ({
+    name: dirent.name,
+    time: fs.statSync(path.join(SOLUTIONS_DIR, dirent.name)).ctime
+  })).sort((a, b) => a.time - b.time);
+
+  // Return the path of the most recent directory
+  return sortedDirectories[0].name;
+}
+
+// Generate the README markdown content from the categorized submissions
 function generateMarkdown(categorized) {
   try {
     let markdown = '# Accepted LeetCode Problems by Tag\n\n';
+    markdown += '## LeetCode Topics\n\n';
 
     logger.info('Generating markdown...'); // Log the start of markdown generation
 
-    // Loop through each tag and append its problems to the markdown content
-    for (const tag in categorized) {
-      markdown += `## ${tag}\n\n`;
-      markdown += '|  Problem  |  Link  |\n';
-      markdown += '|:---------:|:------:|\n';
+    // Sort categories (tags) alphabetically
+    const sortedTags = Object.keys(categorized).sort();
 
-      categorized[tag].forEach(problem => {
-        markdown += `| ${problem.title} | [Link](${problem.link}) |\n`;
+    // Loop through each tag and append its problems to the markdown content
+    sortedTags.forEach((tag) => {
+      markdown += `### ${tag}\n\n`;
+      markdown += '| Problem |';
+
+      // Conditionally add the Solution column based on the feature flag
+      if (ENABLE_SOLUTIONS_LINK) {
+        markdown += ' Solution |';
+      }
+
+      markdown += '\n|:------:|';
+
+      if (ENABLE_SOLUTIONS_LINK) {
+        markdown += ':----------:|';
+      }
+
+      markdown += '\n';
+
+      // Sort problems alphabetically by title within each tag
+      const sortedProblems = categorized[tag].sort((a, b) => a.titleSlug.localeCompare(b.titleSlug));
+
+
+      sortedProblems.forEach(problem => {
+        const solutionDir = findSolutionDirectory(problem.titleSlug); // Find the solution directory for this problem
+        const solutionLink = solutionDir ? `[Solution](${solutionDir})` : 'N/A'; // Link to the solution or mark as 'N/A'
+
+        markdown += `| [${problem.title}](${problem.link}) |`;
+
+        // Conditionally add solution links based on the feature flag
+        if (ENABLE_SOLUTIONS_LINK) {
+          markdown += ` ${solutionLink} |`;
+        }
+
+        markdown += '\n';
       });
 
       markdown += '\n';
 
       // Update the progress bar for each categorized submission
       progressBar.increment(1);
-    }
+    });
 
     logger.info('Markdown generation complete.');
     return markdown;

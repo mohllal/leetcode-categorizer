@@ -2,6 +2,8 @@
 
 This Node.js application fetches your accepted submissions from LeetCode, categorizes them by problem tags (e.g., array, DFS, BFS), and generates a markdown file containing a list of problems by tag with links to the LeetCode problems.
 
+Additionally, it searches for local solution directories that match each problem and adds a solution column with links to these directories.
+
 ## Usage
 
 ### Clone the repository
@@ -33,6 +35,10 @@ In `.env`, add the following:
 LEETCODE_SESSION=<YOUR_LEETCODE_SESSION_HERE>
 ```
 
+- `LEETCODE_SESSION`: Your session token from LeetCode.
+- `SOLUTIONS_DIR`: The local directory that contains your problem solutions, organized in directories with names like `18-4sum`, `92-reverse-linked-list-ii`, etc...
+- `OUTPUT_FILE`: The name of the output markdown file (default is `OUTPUT.md`).
+
 ### Running the Application
 
 #### Locally
@@ -61,12 +67,15 @@ Make sure your `.env` file contains the `LEETCODE_SESSION` and then run the Dock
 
 ```bash
 
-docker run --env-file .env -v ./:/app leetcode-categorizer
+docker run --env-file .env -v ./:/app -v <path_to_solutions_directory>:/solutions leetcode-categorizer
 ```
 
 This will:
 
 - Run the containerized version of the application, fetch your LeetCode submissions, and generate the markdown file.
+- Search the mounted solutions directory for matching problem directories and generate the markdown file with solution links.
+
+Note: Make sure you mount the directory that contains your problem solutions (`SOLUTIONS_DIR`) to the container to allow the application to access and link the solutions in the markdown file.
 
 ## Troubleshooting
 
